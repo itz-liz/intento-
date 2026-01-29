@@ -2,3 +2,9 @@
 __pycache__/
 .venv/
 .env
+*.mp3
+*.pdf
+audio_temp_*
+respuesta_*
+documento_*
+.env

@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎙️ IA Parlante - Llamada por Voz</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 700px;
+            width: 100%;
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 14px;
+            opacity: 0.95;
+        }
+
+        .content {
+            padding: 40px 30px;
+        }
+
+        .call-id-section {
+            margin-bottom: 30px;
+        }
+
+        .call-id-section label {
+            display: block;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+
+        .call-id-section input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+
+        .call-id-section input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .status {
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .status.show {
+            display: block;
+            animation: slideDown 0.3s;
+        }
+
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .voice-interface {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 30px;
+        }
+
+        .mic-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .mic-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 120px;
+            height: 120px;
+            font-size: 50px;
+            cursor: pointer;
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .mic-button:hover:not(.recording) {
+            transform: scale(1.05);
+            box-shadow: 0 15px 40px rgba(102, 126, 234, 0.5);
+        }
+
+        .mic-button.recording {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            animation: pulse 1s infinite;
+            box-shadow: 0 15px 40px rgba(245, 87, 108, 0.5);
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+
+        .mic-label {
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+            text-align: center;
+        }
+
+        .time-display {
+            font-size: 18px;
+            font-weight: bold;
+            color: #667eea;
+            min-width: 80px;
+            text-align: center;
+        }
+
+        .waveform {
+            width: 100%;
+            height: 60px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            padding: 10px;
+        }
+
+        .waveform.recording {
+            background: linear-gradient(135deg, rgba(240, 147, 251, 0.1) 0%, rgba(245, 87, 108, 0.1) 100%);
+        }
+
+        .waveform-bar {
+            width: 4px;
+            background: #667eea;
+            border-radius: 2px;
+            height: 20%;
+            animation: wave 0.6s ease-in-out infinite;
+        }
+
+        .waveform-bar:nth-child(1) { animation-delay: 0s; }
+        .waveform-bar:nth-child(2) { animation-delay: 0.1s; }
+        .waveform-bar:nth-child(3) { animation-delay: 0.2s; }
+        .waveform-bar:nth-child(4) { animation-delay: 0.3s; }
+        .waveform-bar:nth-child(5) { animation-delay: 0.4s; }
+        .waveform-bar:nth-child(6) { animation-delay: 0.3s; }
+        .waveform-bar:nth-child(7) { animation-delay: 0.2s; }
+        .waveform-bar:nth-child(8) { animation-delay: 0.1s; }
+
+        @keyframes wave {
+            0%, 100% { height: 20%; }
+            50% { height: 100%; }
+        }
+
+        .recording-indicator {
+            width: 12px;
+            height: 12px;
+            background: #f5576c;
+            border-radius: 50%;
+            animation: blink 1s infinite;
+            margin-left: 8px;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0.3; }
+        }
+
+        .response-section {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 12px;
+            display: none;
+        }
+
+        .response-section.show {
+            display: block;
+            animation: fadeIn 0.5s;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .response-section h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .transcript-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #999;
+            text-transform: uppercase;
+            margin-top: 15px;
+            margin-bottom: 5px;
+        }
+
+        .transcript-text {
+            background: white;
+            padding: 12px;
+            border-radius: 8px;
+            color: #666;
+            font-size: 14px;
+            line-height: 1.5;
+            margin-bottom: 15px;
+        }
+
+        .response-text {
+            color: #333;
+            line-height: 1.7;
+            font-size: 15px;
+            margin-bottom: 15px;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+        }
+
+        .audio-player {
+            width: 100%;
+            margin-top: 15px;
+            max-width: 100%;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 30px;
+            display: none;
+        }
+
+        .loading.show {
+            display: block;
+        }
+
+        .loading-spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎙️ IA Parlante</h1>
+            <p>Llama y conversa directamente con la IA</p>
+        </div>
+
+        <div class="content">
+            <div class="call-id-section">
+                <label for="callId">ID de Llamada</label>
+                <input type="text" id="callId" placeholder="Pega aquí el ID que recibiste del bot">
+            </div>
+
+            <div class="status" id="statusMessage"></div>
+
+            <div class="loading" id="loading">
+                <div class="loading-spinner"></div>
+                <p>Procesando tu voz...</p>
+            </div>
+
+            <div class="voice-interface" id="voiceInterface">
+                <div class="mic-container">
+                    <button class="mic-button" id="micButton" title="Presiona para empezar a grabar">🎤</button>
+                    <div class="mic-label" id="micLabel">
+                        Presiona el micrófono para hablar
+                    </div>
+                    <div class="time-display" id="timeDisplay">00:00</div>
+                </div>
+
+                <div class="waveform" id="waveform">
+                    <div class="waveform-bar"></div>
+                    <div class="waveform-bar"></div>
+                    <div class="waveform-bar"></div>
+                    <div class="waveform-bar"></div>
+                    <div class="waveform-bar"></div>
+                    <div class="waveform-bar"></div>
+                    <div class="waveform-bar"></div>
+                    <div class="waveform-bar"></div>
+                </div>
+
+                <div class="button-group" id="recordingButtons" style="display: none;">
+                    <button class="btn btn-secondary" id="stopButton">⏹️ Detener & Enviar</button>
+                </div>
+            </div>
+
+            <div class="response-section" id="responseSection">
+                <h3>✅ Respuesta de la IA</h3>
+                
+                <div class="transcript-label">Lo que dijiste:</div>
+                <div class="transcript-text" id="transcriptText"></div>
+
+                <div class="response-text" id="responseText"></div>
+                <audio class="audio-player" id="audioPlayer" controls></audio>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        let mediaRecorder;
+        let audioChunks = [];
+        let recordingTime = 0;
+        let recordingInterval = null;
+        let currentCallId = '';
+        let currentMimeType = '';
+
+        // Elementos DOM
+        const callIdInput = document.getElementById('callId');
+        const micButton = document.getElementById('micButton');
+        const stopButton = document.getElementById('stopButton');
+        const recordingButtons = document.getElementById('recordingButtons');
+        const micLabel = document.getElementById('micLabel');
+        const timeDisplay = document.getElementById('timeDisplay');
+        const waveform = document.getElementById('waveform');
+        const loading = document.getElementById('loading');
+        const responseSection = document.getElementById('responseSection');
+        const transcriptText = document.getElementById('transcriptText');
+        const responseText = document.getElementById('responseText');
+        const audioPlayer = document.getElementById('audioPlayer');
+        const statusMessage = document.getElementById('statusMessage');
+
+        function showStatus(message, type = 'info') {
+            statusMessage.classList.remove('success', 'error', 'info');
+            statusMessage.classList.add(type, 'show');
+            statusMessage.textContent = message;
+            setTimeout(() => {
+                statusMessage.classList.remove('show');
+            }, 5000);
+        }
+
+        function formatTime(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+        }
+
+        function getSupportedMimeType() {
+            const types = [
+                'audio/webm;codecs=opus',
+                'audio/webm',
+                'audio/ogg;codecs=opus',
+                'audio/ogg'
+            ];
+
+            for (const type of types) {
+                if (MediaRecorder.isTypeSupported(type)) {
+                    return type;
+                }
+            }
+
+            return '';
+        }
+
+        function getExtensionFromMimeType(mimeType) {
+            if (!mimeType) return 'webm';
+            if (mimeType.includes('ogg')) return 'ogg';
+            if (mimeType.includes('webm')) return 'webm';
+            return 'webm';
+        }
+
+        micButton.addEventListener('click', async () => {
+            const callId = callIdInput.value.trim();
+            if (!callId) {
+                showStatus('Por favor ingresa el ID de llamada', 'error');
+                return;
+            }
+
+            if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+                // Iniciar grabación
+                try {
+                    // Limpiar UI de respuesta anterior
+                    responseSection.classList.remove('show');
+                    transcriptText.textContent = '';
+                    responseText.textContent = '';
+                    audioPlayer.pause();
+                    audioPlayer.src = '';
+
+                    const stream = await navigator.mediaDevices.getUserMedia({ 
+                        audio: {
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true
+                        }
+                    });
+                    currentCallId = callId;
+                    const preferredMimeType = getSupportedMimeType();
+                    mediaRecorder = preferredMimeType
+                        ? new MediaRecorder(stream, { mimeType: preferredMimeType })
+                        : new MediaRecorder(stream);
+                    currentMimeType = mediaRecorder.mimeType || preferredMimeType;
+                    audioChunks = [];
+                    recordingTime = 0;
+
+                    mediaRecorder.ondataavailable = (event) => {
+                        if (event.data.size > 0) {
+                            audioChunks.push(event.data);
+                        }
+                    };
+
+                    mediaRecorder.onstop = async () => {
+                        clearInterval(recordingInterval);
+                        // Validar audioChunks después de recibir el último chunk
+                        if (audioChunks.length === 0) {
+                            showStatus('❌ Error: No se grabó audio. Intenta de nuevo', 'error');
+                            micLabel.innerHTML = 'Presiona el micrófono para hablar';
+                            timeDisplay.textContent = '00:00';
+                            return;
+                        }
+
+                        await enviarAudio(currentCallId, currentMimeType);
+                    };
+
+                    mediaRecorder.start(250);
+                    micButton.classList.add('recording');
+                    micButton.disabled = false;
+                    micLabel.innerHTML = '🔴 Grabando... Habla ahora';
+                    waveform.classList.add('recording');
+                    recordingButtons.style.display = 'flex';
+                    stopButton.disabled = false;
+
+                    // Iniciar contador
+                    recordingInterval = setInterval(() => {
+                        recordingTime++;
+                        timeDisplay.textContent = formatTime(recordingTime);
+                    }, 1000);
+
+                    showStatus('🎤 Grabando... Habla ahora (presiona "Detener & Enviar" cuando termines)', 'info');
+                } catch (error) {
+                    showStatus('❌ Error al acceder al micrófono: ' + error.message, 'error');
+                    console.error('Micrófono error:', error);
+                }
+            }
+        });
+
+        stopButton.addEventListener('click', async () => {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                // Validar que hay audio
+                if (recordingTime < 1) {
+                    showStatus('⏱️ Debes grabar al menos 1 segundo de audio', 'error');
+                    return;
+                }
+
+                mediaRecorder.requestData();
+                mediaRecorder.stop();
+                mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                micButton.classList.remove('recording');
+                micLabel.innerHTML = 'Procesando...';
+                waveform.classList.remove('recording');
+                recordingButtons.style.display = 'none';
+                stopButton.disabled = true;
+            }
+        });
+
+        async function enviarAudio(callId, mimeType = '') {
+            if (audioChunks.length === 0) {
+                showStatus('❌ No se grabó audio. Presiona el micrófono e intenta de nuevo', 'error');
+                recordingButtons.style.display = 'none';
+                micLabel.innerHTML = 'Presiona el micrófono para hablar';
+                timeDisplay.textContent = '00:00';
+                return;
+            }
+
+            loading.classList.add('show');
+            micButton.disabled = true;
+            recordingButtons.style.display = 'none';
+
+            try {
+                const resolvedMimeType = mimeType || 'audio/webm';
+                const audioBlob = new Blob(audioChunks, { type: resolvedMimeType });
+                
+                // Validar que el blob no está vacío
+                if (audioBlob.size === 0) {
+                    throw new Error('El audio grabado está vacío');
+                }
+
+                console.log(`[DEBUG] Audio blob size: ${audioBlob.size} bytes`);
+
+                const formData = new FormData();
+                const extension = getExtensionFromMimeType(resolvedMimeType);
+                formData.append('audio', audioBlob, `audio.${extension}`);
+
+                const response = await fetch(`${API_BASE}/api/llamada/${callId}/procesar-audio`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Error al procesar el audio');
+                }
+
+                // Mostrar resultados
+                transcriptText.textContent = data.pregunta;
+                responseText.textContent = data.respuesta;
+
+                if (data.audio_url) {
+                    audioPlayer.src = `${data.audio_url}?t=${Date.now()}`;
+                    // Reproducir automáticamente
+                    audioPlayer.play().catch(e => console.log('Auto-play prevented'));
+                }
+
+                responseSection.classList.add('show');
+                showStatus('✅ Respuesta recibida correctamente', 'success');
+                micLabel.innerHTML = '🎤 Presiona para hablar nuevamente';
+                timeDisplay.textContent = '00:00';
+                audioChunks = [];
+
+            } catch (error) {
+                showStatus('❌ Error: ' + error.message, 'error');
+                console.error('Error detallado:', error);
+                micLabel.innerHTML = 'Presiona el micrófono para hablar';
+                timeDisplay.textContent = '00:00';
+            } finally {
+                loading.classList.remove('show');
+                micButton.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>

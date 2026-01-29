@@ -4,18 +4,29 @@ import fitz
 import requests
 import nlpcloud
 import json
+import uuid
+from datetime import datetime
 from groq import Groq
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from gtts import gTTS
 from pydub.utils import mediainfo
+import speech_recognition as sr
+from pydub import AudioSegment
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
+import threading
 
 load_dotenv()
 
 # Cliente de IA
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 nlp_client = nlpcloud.Client("fast-wav2vec2-xlsr-53-spanish", os.getenv("NLP_CLOUD_TOKEN"), gpu=True)
+
+# Flask app para servidor web
+flask_app = Flask(__name__)
+CORS(flask_app)
 
 # System prompt del experto en análisis documental
 SYSTEM_PROMPT = """Eres un ASISTENTE ESPECIALIZADO en LECTURA E INTERPRETACIÓN DE LIBROS.
@@ -24,28 +35,28 @@ TU MISIÓN:
 - Analizar profundamente el contenido del libro
 - Explicar ideas complejas de forma clara
 - Conectar conceptos entre diferentes partes
-- Ayudar al usuario a entender el libro mejor
+- Conversar de manera natural sobre el libro
 
 HABILIDADES:
 - Análisis textual avanzado
 - Interpretación de significados profundos
 - Síntesis de ideas principales
-- Contextualization de conceptos
-- Respuestas breves en audio (máx 3-4 frases)
-- Respuestas estructuradas en texto
+- Contextualización de conceptos
+- Respuestas breves en audio (máx 40 segundos)
+- Respuestas directas y conversacionales
 
 REGLAS DE RESPUESTA:
 - BASARSE EN EL LIBRO: Solo responde con información del documento
 - CLARIDAD: Explica conceptos complejos de forma sencilla
-- BREVEDAD: En audio/llamadas, máximo 3-4 frases
+- BREVEDAD: En audio/llamadas, máximo 40 segundos
+- DIRECTO: Responde sin encabezados, listas ni secciones
+- OPINIÓN INFORMADA: Puedes dar una opinión breve y razonada si el libro lo permite
 - PRECISIÓN: Si falta info, di "Esa información no aparece en el libro"
 - HONESTIDAD: Admite cuando no sabes algo
 
-ESTRUCTURA DE RESPUESTA:
-Para preguntas complejas:
-1. Idea principal (1-2 frases)
-2. Puntos clave (máx 3)
-3. Conclusión o conexión con el libro
+ESTILO:
+- Conversacional y cercano
+- Una sola respuesta continua, sin estructura tipo “Idea principal / Puntos clave / Conclusión”
 
 CONTEXTO DEL LIBRO:
 {documento_context}
@@ -61,6 +72,19 @@ def init_db():
             user_id INTEGER PRIMARY KEY,
             pdf_text TEXT,
             phone_number TEXT
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS llamadas (
+            id TEXT PRIMARY KEY,
+            user_id INTEGER,
+            estado TEXT,
+            transcripcion TEXT,
+            respuesta TEXT,
+            audio_path TEXT,
+            created_at TIMESTAMP,
+            updated_at TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES usuarios(user_id)
         )
     ''')
     conn.commit()
@@ -306,31 +330,277 @@ async def llamar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     conn = sqlite3.connect('ia_servicio.db')
     resultado = conn.execute("SELECT pdf_text FROM usuarios WHERE user_id = ?", (user_id,)).fetchone()
-    conn.close()
-
+    
     if not resultado or not resultado[0]:
+        conn.close()
         await update.message.reply_text("Primero envíame un PDF.")
         return
 
+    # Crear ID único para la llamada
+    call_id = str(uuid.uuid4())[:8]
     pdf_texto = resultado[0]
     
-    mensaje = """Disponible para atender tu consulta por voz:
+    # Guardar llamada en base de datos
+    conn.execute('''
+        INSERT INTO llamadas (id, user_id, estado, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (call_id, user_id, 'pendiente', datetime.now(), datetime.now()))
+    conn.commit()
+    conn.close()
+    
+    mensaje = f"""🎙️ LLAMADA ACTIVADA
 
-Opciones:
-1. Escribe tu pregunta aquí en el chat
-2. Envía un audio (nota de voz) con tu pregunta
-3. Recibirás la respuesta en texto Y audio
+ID de llamada: {call_id}
 
-El asistente analizará tu PDF y responderá basándose en su contenido.
+Puedes usar este ID para:
+1. Probar la llamada en la interfaz web: http://localhost:5000
+2. Enviar preguntas por voz
+3. Recibir respuestas habladas de la IA
 
-¿Cual es tu pregunta?"""
+Ahora puedes:
+- Escribir tu pregunta aquí
+- Enviar un audio (nota de voz)
+- Usar la interfaz web con el ID: {call_id}
+
+¿Cuál es tu pregunta sobre el PDF?"""
     
     await update.message.reply_text(mensaje)
-    print(f"Usuario {user_id} solicitó asistencia por voz/análisis")
+    print(f"Llamada {call_id} creada para usuario {user_id}")
+
+# Función para procesar audio del usuario
+async def procesar_audio_usuario(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    
+    try:
+        # Descargar archivo de audio
+        file = await context.bot.get_file(update.message.voice.file_id)
+        audio_path = f"audio_usuario_{user_id}.ogg"
+        await file.download_to_drive(audio_path)
+        
+        await update.message.reply_text("🎧 Escuchando tu audio...")
+        
+        # Convertir OGG a WAV para reconocimiento
+        audio = AudioSegment.from_ogg(audio_path)
+        wav_path = f"audio_usuario_{user_id}.wav"
+        audio.export(wav_path, format="wav")
+        
+        # Reconocer voz con SpeechRecognition
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(wav_path) as source:
+            audio_data = recognizer.record(source)
+            try:
+                # Intentar con Google Speech Recognition (gratis)
+                texto = recognizer.recognize_google(audio_data, language="es-ES")
+                print(f"[VOZ] Transcripción: {texto}")
+            except sr.UnknownValueError:
+                await update.message.reply_text("No pude entender el audio. ¿Puedes repetir?")
+                return
+            except sr.RequestError as e:
+                # Si Google falla, usar NLP Cloud
+                print(f"[VOZ] Google no disponible, usando NLP Cloud...")
+                try:
+                    with open(wav_path, 'rb') as f:
+                        transcription = nlp_client.speech_recognition(f)
+                        texto = transcription.get('text', '')
+                except Exception as e2:
+                    await update.message.reply_text(f"Error al procesar audio: {str(e2)}")
+                    return
+        
+        # Limpiar archivos temporales
+        os.remove(audio_path)
+        os.remove(wav_path)
+        
+        await update.message.reply_text(f"📝 Entendí: {texto}\n\nProcesando respuesta...")
+        
+        # Procesar la pregunta como texto normal
+        update.message.text = texto
+        await chat_with_groq(update, context)
+        
+    except Exception as e:
+        await update.message.reply_text(f"Error procesando audio: {str(e)}")
+
+# API REST para interfaz web
+@flask_app.route('/')
+def index():
+    return send_from_directory('.', 'interfaz_llamada.html')
+
+@flask_app.route('/api/llamada/<call_id>', methods=['GET'])
+def obtener_llamada(call_id):
+    try:
+        conn = sqlite3.connect('ia_servicio.db')
+        cursor = conn.cursor()
+        resultado = cursor.execute('''
+            SELECT id, estado, transcripcion, respuesta, audio_path, created_at
+            FROM llamadas WHERE id = ?
+        ''', (call_id,)).fetchone()
+        conn.close()
+        
+        if not resultado:
+            return jsonify({'error': 'Llamada no encontrada'}), 404
+        
+        return jsonify({
+            'id': resultado[0],
+            'estado': resultado[1],
+            'transcripcion': resultado[2],
+            'respuesta': resultado[3],
+            'audio_path': resultado[4],
+            'created_at': resultado[5]
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@flask_app.route('/api/llamada/<call_id>/procesar-audio', methods=['POST'])
+def procesar_audio_llamada(call_id):
+    try:
+        # Verificar que se envió un archivo de audio
+        if 'audio' not in request.files:
+            return jsonify({'error': 'No se envió archivo de audio'}), 400
+        
+        audio_file = request.files['audio']
+        
+        if audio_file.filename == '':
+            return jsonify({'error': 'Archivo de audio vacío'}), 400
+        
+        # Obtener información de la llamada
+        conn = sqlite3.connect('ia_servicio.db')
+        cursor = conn.cursor()
+        llamada = cursor.execute('SELECT user_id FROM llamadas WHERE id = ?', (call_id,)).fetchone()
+        
+        if not llamada:
+            conn.close()
+            return jsonify({'error': 'Llamada no encontrada'}), 404
+        
+        user_id = llamada[0]
+        pdf = cursor.execute('SELECT pdf_text FROM usuarios WHERE user_id = ?', (user_id,)).fetchone()
+        
+        if not pdf or not pdf[0]:
+            conn.close()
+            return jsonify({'error': 'No hay PDF cargado'}), 400
+        
+        pdf_texto = pdf[0]
+        
+        # Guardar audio temporal con extensión correcta
+        temp_audio_path = f"audio_temp_{call_id}"
+        audio_file.save(temp_audio_path)
+        
+        # Convertir a WAV usando pydub
+        print(f"[AUDIO] Convirtiendo audio para llamada {call_id}...")
+        try:
+            # Intentar detectar y convertir el formato
+            audio = AudioSegment.from_file(temp_audio_path)
+            wav_path = f"audio_temp_{call_id}.wav"
+            audio.export(wav_path, format="wav")
+            os.remove(temp_audio_path)
+            temp_audio_path = wav_path
+        except Exception as e:
+            print(f"[AUDIO] Error en conversión: {str(e)}, intentando como WAV directo")
+            # Si falla, asumir que ya es WAV
+            wav_path = f"audio_temp_{call_id}.wav"
+            os.rename(temp_audio_path, wav_path)
+            temp_audio_path = wav_path
+        
+        # Transcribir audio
+        print(f"[AUDIO] Transcribiendo audio para llamada {call_id}...")
+        recognizer = sr.Recognizer()
+        pregunta = None
+        
+        try:
+            with sr.AudioFile(temp_audio_path) as source:
+                audio_data = recognizer.record(source)
+                # Intentar con Google Speech Recognition primero
+                try:
+                    pregunta = recognizer.recognize_google(audio_data, language="es-ES")
+                    print(f"[VOZ] Transcripción exitosa: {pregunta}")
+                except sr.UnknownValueError:
+                    print(f"[VOZ] Google no entiende, intentando NLP Cloud...")
+                    # Fallback a NLP Cloud
+                    try:
+                        with open(temp_audio_path, 'rb') as f:
+                            transcription = nlp_client.speech_recognition(f)
+                            pregunta = transcription.get('text', '')
+                            if pregunta:
+                                print(f"[VOZ] Transcripción NLP Cloud: {pregunta}")
+                    except Exception as e2:
+                        print(f"[ERROR] NLP Cloud también falló: {str(e2)}")
+                except sr.RequestError as e:
+                    print(f"[VOZ] Error en Google Recognition: {str(e)}")
+                    # Fallback a NLP Cloud
+                    try:
+                        with open(temp_audio_path, 'rb') as f:
+                            transcription = nlp_client.speech_recognition(f)
+                            pregunta = transcription.get('text', '')
+                            if pregunta:
+                                print(f"[VOZ] Transcripción NLP Cloud: {pregunta}")
+                    except Exception as e2:
+                        print(f"[ERROR] NLP Cloud también falló: {str(e2)}")
+        except Exception as e:
+            print(f"[ERROR] Error leyendo archivo de audio: {str(e)}")
+            if os.path.exists(temp_audio_path):
+                os.remove(temp_audio_path)
+            return jsonify({'error': f'Error al procesar audio: {str(e)}'}), 400
+        
+        if not pregunta:
+            if os.path.exists(temp_audio_path):
+                os.remove(temp_audio_path)
+            return jsonify({'error': 'No se pudo transcribir el audio. Intenta hablar más claro.'}), 400
+        
+        # Limpiar archivo temporal
+        if os.path.exists(temp_audio_path):
+            os.remove(temp_audio_path)
+        
+        # Procesar pregunta con IA
+        import asyncio
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            respuesta = loop.run_until_complete(procesar_pregunta_con_nlp(pregunta, pdf_texto, user_id))
+            
+            # Generar audio de respuesta
+            audio_file_path = loop.run_until_complete(generar_audio_desde_texto(respuesta, user_id))
+            
+        except Exception as e:
+            return jsonify({'error': f'Error procesando pregunta: {str(e)}'}), 500
+        
+        # Actualizar llamada en BD
+        try:
+            cursor.execute('''
+                UPDATE llamadas 
+                SET transcripcion = ?, respuesta = ?, audio_path = ?, estado = ?, updated_at = ?
+                WHERE id = ?
+            ''', (pregunta, respuesta, audio_file_path, 'completada', datetime.now(), call_id))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"[ERROR] Error actualizando BD: {str(e)}")
+        
+        return jsonify({
+            'exito': True,
+            'pregunta': pregunta,
+            'respuesta': respuesta,
+            'audio_url': f'/api/audio/{audio_file_path}' if audio_file_path else None
+        })
+        
+    except Exception as e:
+        print(f"[ERROR] Error en procesar_audio_llamada: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@flask_app.route('/api/audio/<filename>')
+def servir_audio(filename):
+    return send_from_directory('.', filename)
+
+def run_flask():
+    flask_app.run(host='0.0.0.0', port=5001, debug=False)
 
 # Iniciar bot
 if __name__ == '__main__':
     init_db()
+    
+    # Iniciar servidor Flask en thread separado
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    print("Servidor web iniciado en http://localhost:5001")
+    
+    # Iniciar bot de Telegram
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     app = Application.builder().token(token).build()
 
@@ -338,6 +608,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("comandos", comandos))
     app.add_handler(CommandHandler("llamar", llamar))
     app.add_handler(MessageHandler(filters.Document.PDF, handle_document))
+    app.add_handler(MessageHandler(filters.VOICE, procesar_audio_usuario))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat_with_groq))
 
     print("Bot encendido...")
