@@ -17,6 +17,9 @@ from pydub import AudioSegment
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import threading
+from PIL import Image
+import pytesseract
+import io
 
 load_dotenv()
 
@@ -91,14 +94,60 @@ def init_db():
     conn.close()
 
 def extract_text_from_pdf(file_path):
+    """
+    Extrae texto de un PDF. Si el PDF es escaneado (solo imágenes),
+    usa OCR para extraer el texto de las imágenes.
+    """
     try:
         doc = fitz.open(file_path)
         text = ""
-        for page in doc:
-            text += page.get_text()
-        return text
+        
+        # Primer intento: extracción directa de texto
+        print(f"[PDF] Extrayendo texto de {len(doc)} páginas...")
+        for page_num, page in enumerate(doc):
+            page_text = page.get_text()
+            text += page_text
+            if page_num == 0:
+                print(f"[PDF] Página 1: {len(page_text)} caracteres")
+        
+        # Si no hay texto, es un PDF escaneado - usar OCR
+        if len(text.strip()) == 0:
+            print(f"[PDF] PDF escaneado detectado. Usando OCR...")
+            text = ""
+            
+            for page_num, page in enumerate(doc):
+                print(f"[OCR] Procesando página {page_num + 1}/{len(doc)}...")
+                
+                # Convertir página a imagen
+                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # 2x zoom para mejor calidad
+                img_data = pix.tobytes("png")
+                img = Image.open(io.BytesIO(img_data))
+                
+                # Aplicar OCR con Tesseract
+                try:
+                    page_text = pytesseract.image_to_string(img, lang='spa')  # español
+                    text += page_text + "\n"
+                    print(f"[OCR] Página {page_num + 1}: {len(page_text)} caracteres extraídos")
+                except Exception as e_ocr:
+                    print(f"[OCR] Error en página {page_num + 1}: {str(e_ocr)}")
+                    continue
+                
+                # Limitar a las primeras 20 páginas para evitar timeout
+                if page_num >= 19:
+                    print(f"[OCR] Limitado a 20 páginas para optimizar velocidad")
+                    break
+        
+        doc.close()
+        
+        if len(text.strip()) > 0:
+            print(f"[PDF] Texto extraído exitosamente: {len(text)} caracteres totales")
+            return text
+        else:
+            print(f"[PDF] No se pudo extraer texto del PDF")
+            return None
+            
     except Exception as e:
-        print(f"Error extrayendo PDF: {str(e)}")
+        print(f"[ERROR] Error extrayendo PDF: {str(e)}")
         return None
 
 # Función para procesar información con NLP y Machine Learning
@@ -261,9 +310,22 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Error: No pude leer el PDF. Intenta con otro archivo.")
             return
         
-        # Guardar en base de datos
+        # Guardar en base de datos - USAR INSERT OR REPLACE para crear/actualizar usuario
         conn = sqlite3.connect('ia_servicio.db')
-        conn.execute("UPDATE usuarios SET pdf_text = ? WHERE user_id = ?", (texto_extraido, user_id))
+        cursor = conn.cursor()
+        
+        # Verificar si el usuario existe
+        existe = cursor.execute("SELECT user_id FROM usuarios WHERE user_id = ?", (user_id,)).fetchone()
+        
+        if existe:
+            # Actualizar
+            cursor.execute("UPDATE usuarios SET pdf_text = ? WHERE user_id = ?", (texto_extraido, user_id))
+            print(f"[DB] Usuario {user_id} actualizado con nuevo PDF")
+        else:
+            # Insertar nuevo usuario
+            cursor.execute("INSERT INTO usuarios (user_id, pdf_text) VALUES (?, ?)", (user_id, texto_extraido))
+            print(f"[DB] Nuevo usuario {user_id} creado con PDF")
+        
         conn.commit()
         conn.close()
         
@@ -279,11 +341,16 @@ async def chat_with_groq(update: Update, context: ContextTypes.DEFAULT_TYPE):
     resultado = conn.execute("SELECT pdf_text FROM usuarios WHERE user_id = ?", (user_id,)).fetchone()
     conn.close()
 
+    print(f"[CHAT] Usuario {user_id} pregunta: {pregunta[:50]}...")
+    print(f"[CHAT] PDF encontrado en BD: {resultado is not None}")
+
     if not resultado or not resultado[0]:
+        print(f"[CHAT] ERROR: Usuario {user_id} no tiene PDF en la base de datos")
         await update.message.reply_text("Primero envíame un PDF.")
         return
 
     pdf_texto = resultado[0]
+    print(f"[CHAT] Usando PDF de {len(pdf_texto)} caracteres para responder")
     
     try:
         # Procesar pregunta con NLP y ML
@@ -305,11 +372,11 @@ async def chat_with_groq(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await update.message.reply_voice(voice=f, caption="Escucha la respuesta")
                 
                 os.remove(audio_file)
-                print(f"Audio enviado al usuario {user_id}")
+                print(f"[CHAT] Audio enviado al usuario {user_id}")
             else:
-                print(f"No se pudo generar audio para usuario {user_id}")
+                print(f"[CHAT] No se pudo generar audio para usuario {user_id}")
         except Exception as e_audio:
-            print(f"Error con audio: {str(e_audio)}")
+            print(f"[CHAT] Error con audio: {str(e_audio)}")
             
     except Exception as e:
         error_msg = str(e).lower()
@@ -331,14 +398,21 @@ async def llamar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = sqlite3.connect('ia_servicio.db')
     resultado = conn.execute("SELECT pdf_text FROM usuarios WHERE user_id = ?", (user_id,)).fetchone()
     
+    print(f"[LLAMAR] Usuario {user_id} ejecutó /llamar")
+    print(f"[LLAMAR] Resultado de BD: {resultado is not None}")
+    
     if not resultado or not resultado[0]:
         conn.close()
+        print(f"[LLAMAR] ERROR: Usuario {user_id} no tiene PDF cargado")
         await update.message.reply_text("Primero envíame un PDF.")
         return
 
     # Crear ID único para la llamada
     call_id = str(uuid.uuid4())[:8]
     pdf_texto = resultado[0]
+    
+    print(f"[LLAMAR] PDF encontrado: {len(pdf_texto)} caracteres")
+    print(f"[LLAMAR] Creando llamada {call_id}")
     
     # Guardar llamada en base de datos
     conn.execute('''
@@ -365,7 +439,7 @@ Ahora puedes:
 ¿Cuál es tu pregunta sobre el PDF?"""
     
     await update.message.reply_text(mensaje)
-    print(f"Llamada {call_id} creada para usuario {user_id}")
+    print(f"[LLAMAR] Llamada {call_id} creada exitosamente para usuario {user_id}")
 
 # Función para procesar audio del usuario
 async def procesar_audio_usuario(update: Update, context: ContextTypes.DEFAULT_TYPE):
