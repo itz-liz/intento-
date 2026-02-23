@@ -13,7 +13,7 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #ffffff 0%, #ffffff 100%);
             min-height: 100vh;
             display: flex;
             justify-content: center;
@@ -22,19 +22,21 @@
         }
 
         .container {
-            background: white;
+            background: #31288e;
             border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            box-shadow: 0 20px 60px rgba(27, 41, 195, 0.801);
             max-width: 700px;
             width: 100%;
             overflow: hidden;
+            border: 1px solid #253143;
         }
 
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: linear-gradient(135deg, #100e66 0%, #1e3a8a 100%);
+            color: #f9fafb;
             padding: 40px 30px;
             text-align: center;
+            border-bottom: 1px solid #141b7c;
         }
 
         .header h1 {
@@ -58,7 +60,7 @@
         .call-id-section label {
             display: block;
             font-weight: 600;
-            color: #333;
+            color: #e5e7eb;
             margin-bottom: 10px;
             font-size: 14px;
         }
@@ -66,16 +68,18 @@
         .call-id-section input {
             width: 100%;
             padding: 12px 15px;
-            border: 2px solid #e0e0e0;
+            border: 2px solid #374151;
             border-radius: 10px;
             font-size: 16px;
             transition: all 0.3s;
+            background: #111827;
+            color: #f9fafb;
         }
 
         .call-id-section input:focus {
             outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            border-color: #2563eb;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
         }
 
         .status {
@@ -97,21 +101,21 @@
         }
 
         .status.success {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
+            background: #172554;
+            color: #dbeafe;
+            border: 1px solid #1d4ed8;
         }
 
         .status.error {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
+            background: #111827;
+            color: #cbd5e1;
+            border: 1px solid #475569;
         }
 
         .status.info {
-            background: #d1ecf1;
-            color: #0c5460;
-            border: 1px solid #bee5eb;
+            background: #1e293b;
+            color: #e2e8f0;
+            border: 1px solid #334155;
         }
 
         .voice-interface {
@@ -129,15 +133,15 @@
         }
 
         .mic-button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%);
+            color: #f9fafb;
             border: none;
             border-radius: 50%;
             width: 120px;
             height: 120px;
             font-size: 50px;
             cursor: pointer;
-            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.7);
             transition: all 0.3s;
             display: flex;
             align-items: center;
@@ -146,13 +150,13 @@
 
         .mic-button:hover:not(.recording) {
             transform: scale(1.05);
-            box-shadow: 0 15px 40px rgba(102, 126, 234, 0.5);
+            box-shadow: 0 15px 40px rgba(30, 58, 138, 0.55);
         }
 
         .mic-button.recording {
-            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            background: linear-gradient(135deg, #2563eb 0%, #1e293b 100%);
             animation: pulse 1s infinite;
-            box-shadow: 0 15px 40px rgba(245, 87, 108, 0.5);
+            box-shadow: 0 15px 40px rgba(37, 99, 235, 0.45);
         }
 
         @keyframes pulse {
@@ -163,14 +167,14 @@
         .mic-label {
             font-size: 16px;
             font-weight: 600;
-            color: #333;
+            color: #e5e7eb;
             text-align: center;
         }
 
         .time-display {
             font-size: 18px;
             font-weight: bold;
-            color: #667eea;
+            color: #60a5fa;
             min-width: 80px;
             text-align: center;
         }
@@ -178,22 +182,23 @@
         .waveform {
             width: 100%;
             height: 60px;
-            background: #f8f9fa;
+            background: #111827;
             border-radius: 10px;
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 4px;
             padding: 10px;
+            border: 1px solid #1f2937;
         }
 
         .waveform.recording {
-            background: linear-gradient(135deg, rgba(240, 147, 251, 0.1) 0%, rgba(245, 87, 108, 0.1) 100%);
+            background: linear-gradient(135deg, rgba(30, 58, 138, 0.25) 0%, rgba(15, 23, 42, 0.35) 100%);
         }
 
         .waveform-bar {
             width: 4px;
-            background: #667eea;
+            background: #3b82f6;
             border-radius: 2px;
             height: 20%;
             animation: wave 0.6s ease-in-out infinite;
@@ -216,7 +221,7 @@
         .recording-indicator {
             width: 12px;
             height: 12px;
-            background: #f5576c;
+            background: #3b82f6;
             border-radius: 50%;
             animation: blink 1s infinite;
             margin-left: 8px;
@@ -230,9 +235,10 @@
         .response-section {
             margin-top: 30px;
             padding: 20px;
-            background: #f8f9fa;
+            background: #111827;
             border-radius: 12px;
             display: none;
+            border: 1px solid #1f2937;
         }
 
         .response-section.show {
@@ -246,7 +252,7 @@
         }
 
         .response-section h3 {
-            color: #667eea;
+            color: #93c5fd;
             margin-bottom: 15px;
             font-size: 18px;
             display: flex;
@@ -257,30 +263,32 @@
         .transcript-label {
             font-size: 12px;
             font-weight: 600;
-            color: #999;
+            color: #94a3b8;
             text-transform: uppercase;
             margin-top: 15px;
             margin-bottom: 5px;
         }
 
         .transcript-text {
-            background: white;
+            background: #0b1220;
             padding: 12px;
             border-radius: 8px;
-            color: #666;
+            color: #cbd5e1;
             font-size: 14px;
             line-height: 1.5;
             margin-bottom: 15px;
+            border: 1px solid #1f2937;
         }
 
         .response-text {
-            color: #333;
+            color: #e5e7eb;
             line-height: 1.7;
             font-size: 15px;
             margin-bottom: 15px;
             padding: 15px;
-            background: white;
+            background: #121c30;
             border-radius: 8px;
+            border: 1px solid #1f2937;
         }
 
         .audio-player {
@@ -300,13 +308,17 @@
         }
 
         .loading-spinner {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #667eea;
+            border: 4px solid #1f2937;
+            border-top: 4px solid #3b82f6;
             border-radius: 50%;
             width: 50px;
             height: 50px;
             animation: spin 1s linear infinite;
             margin: 0 auto 15px;
+        }
+
+        .loading p {
+            color: #cbd5e1;
         }
 
         @keyframes spin {
@@ -323,8 +335,8 @@
         .btn {
             flex: 1;
             padding: 12px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: linear-gradient(135deg, #1e3a8a 0%, #111827 100%);
+            color: #f9fafb;
             border: none;
             border-radius: 10px;
             font-size: 14px;
@@ -335,7 +347,7 @@
 
         .btn:hover:not(:disabled) {
             transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 5px 20px rgba(16, 76, 240, 0.45);
         }
 
         .btn:disabled {
@@ -344,14 +356,18 @@
         }
 
         .btn-secondary {
-            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            background: linear-gradient(135deg, #1e293b 0%, #000000 100%);
+        }
+
+        .content {
+            background: #0f172a;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🎙️ IA Parlante</h1>
+            <h1>Talker Bot </h1>
             <p>Llama y conversa directamente con la IA</p>
         </div>
 

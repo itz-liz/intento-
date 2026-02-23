@@ -20,6 +20,7 @@ import threading
 from PIL import Image
 import pytesseract
 import io
+import shutil
 
 load_dotenv()
 
@@ -525,6 +526,7 @@ def obtener_llamada(call_id):
 
 @flask_app.route('/api/llamada/<call_id>/procesar-audio', methods=['POST'])
 def procesar_audio_llamada(call_id):
+    conn = None
     try:
         # Verificar que se envió un archivo de audio
         if 'audio' not in request.files:
@@ -541,37 +543,65 @@ def procesar_audio_llamada(call_id):
         llamada = cursor.execute('SELECT user_id FROM llamadas WHERE id = ?', (call_id,)).fetchone()
         
         if not llamada:
-            conn.close()
             return jsonify({'error': 'Llamada no encontrada'}), 404
         
         user_id = llamada[0]
         pdf = cursor.execute('SELECT pdf_text FROM usuarios WHERE user_id = ?', (user_id,)).fetchone()
         
         if not pdf or not pdf[0]:
-            conn.close()
             return jsonify({'error': 'No hay PDF cargado'}), 400
         
         pdf_texto = pdf[0]
         
-        # Guardar audio temporal con extensión correcta
-        temp_audio_path = f"audio_temp_{call_id}"
+        # Guardar audio temporal con extensión detectada
+        original_filename = (audio_file.filename or '').lower()
+        content_type = (audio_file.content_type or '').lower()
+        extension = os.path.splitext(original_filename)[1]
+
+        if not extension:
+            if 'ogg' in content_type:
+                extension = '.ogg'
+            elif 'wav' in content_type:
+                extension = '.wav'
+            elif 'webm' in content_type:
+                extension = '.webm'
+            elif 'mpeg' in content_type or 'mp3' in content_type:
+                extension = '.mp3'
+            else:
+                extension = '.webm'
+
+        temp_audio_path = f"audio_temp_{call_id}{extension}"
         audio_file.save(temp_audio_path)
-        
-        # Convertir a WAV usando pydub
+
+        # Convertir a WAV solo si no está en formato nativo soportado
+        formatos_nativos = {'.wav', '.wave', '.aiff', '.aif', '.aifc', '.flac'}
+        temp_audio_para_transcripcion = temp_audio_path
+
         print(f"[AUDIO] Convirtiendo audio para llamada {call_id}...")
-        try:
-            # Intentar detectar y convertir el formato
-            audio = AudioSegment.from_file(temp_audio_path)
-            wav_path = f"audio_temp_{call_id}.wav"
-            audio.export(wav_path, format="wav")
-            os.remove(temp_audio_path)
-            temp_audio_path = wav_path
-        except Exception as e:
-            print(f"[AUDIO] Error en conversión: {str(e)}, intentando como WAV directo")
-            # Si falla, asumir que ya es WAV
-            wav_path = f"audio_temp_{call_id}.wav"
-            os.rename(temp_audio_path, wav_path)
-            temp_audio_path = wav_path
+        if extension not in formatos_nativos:
+            ffmpeg_ok = shutil.which('ffmpeg') is not None
+            ffprobe_ok = shutil.which('ffprobe') is not None
+
+            if not ffmpeg_ok or not ffprobe_ok:
+                if os.path.exists(temp_audio_path):
+                    os.remove(temp_audio_path)
+                return jsonify({
+                    'error': 'Falta ffmpeg/ffprobe para convertir audio webm/ogg. Instala ffmpeg y reinicia el bot.'
+                }), 500
+
+            try:
+                audio = AudioSegment.from_file(temp_audio_path)
+                wav_path = f"audio_temp_{call_id}.wav"
+                audio.export(wav_path, format="wav")
+                os.remove(temp_audio_path)
+                temp_audio_para_transcripcion = wav_path
+            except Exception as e:
+                print(f"[AUDIO] Error en conversión: {str(e)}")
+                if os.path.exists(temp_audio_path):
+                    os.remove(temp_audio_path)
+                return jsonify({
+                    'error': f'No se pudo convertir el audio a WAV: {str(e)}'
+                }), 400
         
         # Transcribir audio
         print(f"[AUDIO] Transcribiendo audio para llamada {call_id}...")
@@ -579,7 +609,7 @@ def procesar_audio_llamada(call_id):
         pregunta = None
         
         try:
-            with sr.AudioFile(temp_audio_path) as source:
+            with sr.AudioFile(temp_audio_para_transcripcion) as source:
                 audio_data = recognizer.record(source)
                 # Intentar con Google Speech Recognition primero
                 try:
@@ -589,7 +619,7 @@ def procesar_audio_llamada(call_id):
                     print(f"[VOZ] Google no entiende, intentando NLP Cloud...")
                     # Fallback a NLP Cloud
                     try:
-                        with open(temp_audio_path, 'rb') as f:
+                        with open(temp_audio_para_transcripcion, 'rb') as f:
                             transcription = nlp_client.speech_recognition(f)
                             pregunta = transcription.get('text', '')
                             if pregunta:
@@ -600,7 +630,7 @@ def procesar_audio_llamada(call_id):
                     print(f"[VOZ] Error en Google Recognition: {str(e)}")
                     # Fallback a NLP Cloud
                     try:
-                        with open(temp_audio_path, 'rb') as f:
+                        with open(temp_audio_para_transcripcion, 'rb') as f:
                             transcription = nlp_client.speech_recognition(f)
                             pregunta = transcription.get('text', '')
                             if pregunta:
@@ -609,21 +639,22 @@ def procesar_audio_llamada(call_id):
                         print(f"[ERROR] NLP Cloud también falló: {str(e2)}")
         except Exception as e:
             print(f"[ERROR] Error leyendo archivo de audio: {str(e)}")
-            if os.path.exists(temp_audio_path):
-                os.remove(temp_audio_path)
+            if os.path.exists(temp_audio_para_transcripcion):
+                os.remove(temp_audio_para_transcripcion)
             return jsonify({'error': f'Error al procesar audio: {str(e)}'}), 400
         
         if not pregunta:
-            if os.path.exists(temp_audio_path):
-                os.remove(temp_audio_path)
+            if os.path.exists(temp_audio_para_transcripcion):
+                os.remove(temp_audio_para_transcripcion)
             return jsonify({'error': 'No se pudo transcribir el audio. Intenta hablar más claro.'}), 400
         
         # Limpiar archivo temporal
-        if os.path.exists(temp_audio_path):
-            os.remove(temp_audio_path)
+        if os.path.exists(temp_audio_para_transcripcion):
+            os.remove(temp_audio_para_transcripcion)
         
         # Procesar pregunta con IA
         import asyncio
+        loop = None
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -634,6 +665,9 @@ def procesar_audio_llamada(call_id):
             
         except Exception as e:
             return jsonify({'error': f'Error procesando pregunta: {str(e)}'}), 500
+        finally:
+            if loop is not None:
+                loop.close()
         
         # Actualizar llamada en BD
         try:
@@ -643,7 +677,6 @@ def procesar_audio_llamada(call_id):
                 WHERE id = ?
             ''', (pregunta, respuesta, audio_file_path, 'completada', datetime.now(), call_id))
             conn.commit()
-            conn.close()
         except Exception as e:
             print(f"[ERROR] Error actualizando BD: {str(e)}")
         
@@ -657,6 +690,12 @@ def procesar_audio_llamada(call_id):
     except Exception as e:
         print(f"[ERROR] Error en procesar_audio_llamada: {str(e)}")
         return jsonify({'error': str(e)}), 500
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 @flask_app.route('/api/audio/<filename>')
 def servir_audio(filename):
