@@ -12,11 +12,15 @@ Este proyecto combina:
 - Razonamiento sobre contenido documental con IA.
 
 ## Video de Introducción
+[![Miniatura video de introducción](https://img.youtube.com/vi/w8wFlB879XM/hqdefault.jpg)](https://youtu.be/w8wFlB879XM)
+
 [Ver video de introducción](https://youtu.be/w8wFlB879XM)
 
 Video generado con: Google Flow, Google IA Studio.
 
 ## Video de funcionamiento
+[![Miniatura video de funcionamiento](https://img.youtube.com/vi/WUltsIs_YrE/hqdefault.jpg)](https://youtu.be/WUltsIs_YrE)
+
 [Ver video de funcionamiento](https://youtu.be/WUltsIs_YrE)
 
 ## Funcionalidades principales
